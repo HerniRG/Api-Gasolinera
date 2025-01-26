@@ -1,11 +1,12 @@
 # app/main.py
 
 import logging
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from . import models, schemas, crud
 from .database import SessionLocal, engine
-from .scheduler import start_scheduler
+from fastapi.middleware.cors import CORSMiddleware
+import os
 
 # Configuración básica de logging
 logging.basicConfig(level=logging.INFO)
@@ -19,8 +20,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Iniciar el scheduler al arrancar la aplicación
-start_scheduler()
+# Configurar CORS para permitir todos los orígenes
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite todos los orígenes
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Dependencia para obtener la sesión de la base de datos
 def get_db():
@@ -61,9 +68,19 @@ def read_historico(ideess: str, skip: int = 0, limit: int = 100, db: Session = D
     return historico
 
 @app.post("/gasolineras/fetch/")
-def fetch_gasolineras(db: Session = Depends(get_db)):
+def fetch_gasolineras(
+    db: Session = Depends(get_db),
+    authorization: str = Header(None)
+):
     from .utils import parse_and_store_data
     logger.info("Se ha llamado al endpoint /gasolineras/fetch/")
+    
+    # Obtener la clave secreta desde variables de entorno
+    secret = os.getenv("SECRET_KEY")
+    if authorization != f"Bearer {secret}":
+        logger.warning("Intento de acceso no autorizado al endpoint /gasolineras/fetch/")
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
     try:
         parse_and_store_data(db)
         logger.info("Recolección de gasolineras completada con éxito.")
